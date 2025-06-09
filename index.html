@@ -8,6 +8,8 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- jsQR for QR Code scanning -->
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+    <!-- JSZip for zipping files -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <!-- Google API Client -->
     <script src="https://apis.google.com/js/api.js"></script>
     <style>
@@ -52,6 +54,13 @@
             display: block;
             margin-left: auto;
             margin-right: auto;
+        }
+        .detection-popup {
+            animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: scale(0.7); }
+            20%, 80% { opacity: 1; transform: scale(1); }
         }
     </style>
 </head>
@@ -98,16 +107,22 @@
                 <section class="mb-6 relative">
                     <video id="videoPlayer" controls playsinline class="w-full rounded-lg shadow-md aspect-video bg-black"></video>
                     <canvas id="scannerCanvas" class="hidden"></canvas>
+                    <div id="fileDetectionOverlay" class="absolute inset-0 flex items-center justify-center p-4 pointer-events-none hidden bg-black bg-opacity-30 rounded-lg">
+                        <span class="text-red-500 font-bold text-4xl md:text-5xl text-center break-all" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.7);"></span>
+                    </div>
                 </section>
 
-                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center">
+                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center flex-wrap">
                     <button id="scanButton" disabled class="action-button primary-button">
                         Bắt đầu quét Mã (File)
                     </button>
                     <button id="exportCsvButton" disabled class="action-button success-button">
                         Xuất CSV (File)
                     </button>
-                    <button id="uploadSheetFileButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400">
+                    <button id="downloadAllFileSegmentsButton" disabled class="action-button bg-purple-600 hover:bg-purple-700 text-white">
+                        Tải xuống tất cả (File)
+                    </button>
+                    <button id="uploadSheetFileButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400 mt-2 md:mt-0">
                         Tải lên Google Sheets (File)
                     </button>
                 </section>
@@ -139,9 +154,12 @@
                 <section class="mb-6 relative">
                     <video id="cameraPlayer" autoplay playsinline muted class="w-full rounded-lg shadow-md aspect-video bg-black"></video>
                     <canvas id="cameraScannerCanvas" class="hidden"></canvas>
+                     <div id="cameraDetectionOverlay" class="absolute inset-0 flex items-center justify-center p-4 pointer-events-none hidden bg-black bg-opacity-30 rounded-lg">
+                        <span class="text-red-500 font-bold text-4xl md:text-5xl text-center break-all" style="text-shadow: 2px 2px 4px rgba(0,0,0,0.7);"></span>
+                    </div>
                 </section>
 
-                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center">
+                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center flex-wrap">
                     <button id="startCameraButton" class="action-button bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-lg">
                         Bắt đầu Ghi & Quét Mã
                     </button>
@@ -151,7 +169,10 @@
                     <button id="exportCameraCsvButton" disabled class="action-button success-button">
                         Xuất CSV (Camera)
                     </button>
-                     <button id="uploadSheetCameraButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400">
+                    <button id="downloadAllCameraSegmentsButton" disabled class="action-button bg-purple-600 hover:bg-purple-700 text-white">
+                        Tải xuống tất cả (Camera)
+                    </button>
+                     <button id="uploadSheetCameraButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400 mt-2 md:mt-0">
                         Tải lên Google Sheets (Camera)
                     </button>
                 </section>
@@ -208,6 +229,7 @@
         const scannerCanvas = document.getElementById('scannerCanvas');
         const scanButton = document.getElementById('scanButton');
         const exportCsvButton = document.getElementById('exportCsvButton');
+        const downloadAllFileSegmentsButton = document.getElementById('downloadAllFileSegmentsButton');
         const codeLog = document.getElementById('codeLog');
         const segmentsDiv = document.getElementById('segments');
         const messageArea = document.getElementById('messageArea');
@@ -218,6 +240,7 @@
         const startCameraButton = document.getElementById('startCameraButton');
         const stopCameraButton = document.getElementById('stopCameraButton');
         const exportCameraCsvButton = document.getElementById('exportCameraCsvButton');
+        const downloadAllCameraSegmentsButton = document.getElementById('downloadAllCameraSegmentsButton');
         const cameraCodeLogEl = document.getElementById('cameraCodeLog');
         const cameraSegmentsEl = document.getElementById('cameraSegments');
         const cameraMessageAreaEl = document.getElementById('cameraMessageArea');
@@ -229,6 +252,7 @@
         // --- Global State ---
         let barcodeDetector;
         let fileScanTimeoutId = null;
+        let notificationTimeout;
 
         // File Tab State
         let detectedFileCodes = [];
@@ -305,6 +329,7 @@
             videoFile.addEventListener('change', handleFileSelect);
             scanButton.addEventListener('click', toggleFileScan);
             exportCsvButton.addEventListener('click', () => exportToCSV(detectedFileCodes, "danh_sach_code_file.csv", messageArea));
+            downloadAllFileSegmentsButton.addEventListener('click', () => downloadAllSegments(detectedFileCodes, 'FILE', messageArea));
             videoPlayer.addEventListener('loadedmetadata', handleFileMetadataLoaded);
             videoPlayer.addEventListener('error', () => handleVideoError(videoPlayer.error, messageArea, scanButton, exportCsvButton));
 
@@ -312,6 +337,7 @@
             startCameraButton.addEventListener('click', startCameraScanAndRecord);
             stopCameraButton.addEventListener('click', stopCameraScanAndRecord);
             exportCameraCsvButton.addEventListener('click', () => exportToCSV(detectedCameraCodes, "danh_sach_code_camera.csv", cameraMessageAreaEl));
+            downloadAllCameraSegmentsButton.addEventListener('click', () => downloadAllSegments(detectedCameraCodes, 'CAM', cameraMessageAreaEl));
         }
         
         function switchTab(targetTab) {
@@ -496,7 +522,8 @@
             codeLog.innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
             segmentsDiv.innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được tạo.</p>';
             scanButton.disabled = true; 
-            exportCsvButton.disabled = true; 
+            exportCsvButton.disabled = true;
+            downloadAllFileSegmentsButton.disabled = true;
             uploadSheetFileButton.disabled = true;
             fileVideoLoaded = false;
             scanButton.textContent = 'Bắt đầu quét Mã (File)';
@@ -552,6 +579,7 @@
                             blob: null 
                         });
                         displayCodeEntry(videoPlayer.currentTime, detectedCode.data, detectedCode.type, codeLog);
+                        showDetectionNotification(detectedCode.data, 'fileDetectionOverlay');
                     }
                 }
                 
@@ -569,6 +597,7 @@
                 updateMessage(`Quét xong! Tìm thấy ${detectedFileCodes.length} mã. Đang xử lý video...`, 'success', messageArea, true);
                 generateVideoFileSegments();
                 exportCsvButton.disabled = false;
+                downloadAllFileSegmentsButton.disabled = false;
                 if(gapi.client.getToken()) uploadSheetFileButton.disabled = false;
             } else {
                 updateMessage('Quét xong! Không tìm thấy mã nào.', 'info', messageArea);
@@ -662,7 +691,8 @@
                 if (!currentCameraCodeData) { // First code detected
                     startNewRecordingForNewCode(codeData, codeType);
                 } else if (codeData !== currentCameraCodeData) { // New, different code detected
-                    stopCurrentRecordingAndFinalizeSegment().then(() => {
+                    const endingCodeInfo = detectedCameraCodes.find(c => c.startTimeMs === currentCameraSegmentStartTimeMs);
+                    stopCurrentRecordingAndFinalizeSegment(endingCodeInfo).then(() => {
                          startNewRecordingForNewCode(codeData, codeType);
                     });
                 }
@@ -677,11 +707,13 @@
                 data: codeData, 
                 type: codeType, 
                 startTimeMs: currentCameraSegmentStartTimeMs,
-                id: 'code-cam-' + currentCameraSegmentStartTimeMs
+                id: 'code-cam-' + currentCameraSegmentStartTimeMs,
+                blob: null
             });
 
             displayCodeEntry(null, codeData, codeType, cameraCodeLogEl, currentCameraSegmentStartTimeMs);
             updateMessage(`Phát hiện mã: ${codeData}. Bắt đầu ghi...`, "success", cameraMessageAreaEl, true);
+            showDetectionNotification(codeData, 'cameraDetectionOverlay');
             startNewCameraSegmentRecording();
         }
 
@@ -694,13 +726,17 @@
             currentCameraSegmentRecorder.start();
         }
         
-        function stopCurrentRecordingAndFinalizeSegment() {
+        function stopCurrentRecordingAndFinalizeSegment(codeInfoToFinalize) {
             return new Promise((resolve) => {
                 if (currentCameraSegmentRecorder?.state === "recording") {
                     currentCameraSegmentRecorder.onstop = () => {
                         const blob = new Blob(currentCameraSegmentChunks, { type: currentCameraSegmentRecorder.mimeType });
-                        const lastCodeInfo = detectedCameraCodes[detectedCameraCodes.length - 1];
-                        createCameraSegmentUI(lastCodeInfo, blob);
+                        
+                        if (codeInfoToFinalize && blob.size > 0) {
+                           codeInfoToFinalize.blob = blob;
+                           createCameraSegmentUI(codeInfoToFinalize, blob);
+                        }
+                        
                         currentCameraSegmentChunks = [];
                         resolve();
                     };
@@ -716,7 +752,9 @@
             isCameraRecording = false;
             clearInterval(cameraScanIntervalId);
             
-            stopCurrentRecordingAndFinalizeSegment().then(() => {
+            const finalCodeInfo = detectedCameraCodes.find(c => c.startTimeMs === currentCameraSegmentStartTimeMs);
+
+            stopCurrentRecordingAndFinalizeSegment(finalCodeInfo).then(() => {
                 if (cameraStream) {
                     cameraStream.getTracks().forEach(track => track.stop());
                     cameraStream = null;
@@ -728,6 +766,7 @@
                 
                 if (detectedCameraCodes.length > 0) {
                     exportCameraCsvButton.disabled = false;
+                    downloadAllCameraSegmentsButton.disabled = false;
                     if(gapi.client.getToken()) uploadSheetCameraButton.disabled = false;
                     updateMessage("Đã dừng ghi. Các đoạn video đã được lưu.", "success", cameraMessageAreaEl);
                 } else {
@@ -742,6 +781,7 @@
             cameraCodeLogEl.innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
             cameraSegmentsEl.innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được ghi.</p>';
             exportCameraCsvButton.disabled = true; 
+            downloadAllCameraSegmentsButton.disabled = true;
             uploadSheetCameraButton.disabled = true;
             currentCameraCodeData = null;
         }
@@ -782,6 +822,23 @@
             return null;
         }
         
+        function showDetectionNotification(codeData, overlayId) {
+            const overlay = document.getElementById(overlayId);
+            if (!overlay) return;
+
+            const textElement = overlay.querySelector('span');
+            textElement.textContent = codeData;
+
+            overlay.classList.remove('hidden');
+            overlay.classList.add('detection-popup'); // Apply animation to the overlay
+
+            clearTimeout(notificationTimeout);
+            notificationTimeout = setTimeout(() => {
+                overlay.classList.add('hidden');
+                overlay.classList.remove('detection-popup');
+            }, 2000); // Hide after 2 seconds (matching animation duration)
+        }
+
         function displayCodeEntry(time, data, type, logElement, timestampMs = null) {
             logElement.querySelector('p.italic')?.remove();
             const div = document.createElement('div');
@@ -860,8 +917,6 @@
                 info: 'bg-blue-100 text-blue-700'
             };
             const classesToAdd = typeClasses[type] || typeClasses.info;
-            // FIX: The classList.add() method does not accept a string with spaces.
-            // We need to spread the classes after splitting the string.
             areaElement.classList.add(...classesToAdd.split(' '));
         }
 
@@ -874,6 +929,36 @@
             const types = ['video/webm; codecs=vp9,opus', 'video/webm; codecs=vp8,opus', 'video/webm'];
             return types.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
         }
+        
+        async function downloadAllSegments(codes, baseName, msgAreaElement) {
+            if (typeof JSZip === 'undefined') {
+                updateMessage("Lỗi: Thư viện nén file (JSZip) không thể tải.", 'error', msgAreaElement);
+                return;
+            }
+            const segmentsWithBlobs = codes.filter(c => c.blob && c.blob.size > 0);
+            if (segmentsWithBlobs.length === 0) {
+                updateMessage("Không có đoạn video nào để tải xuống.", 'warning', msgAreaElement);
+                return;
+            }
+
+            updateMessage(`Đang nén ${segmentsWithBlobs.length} file video... Vui lòng đợi.`, 'info', msgAreaElement, true);
+
+            const zip = new JSZip();
+            segmentsWithBlobs.forEach((code, index) => {
+                const fileName = `${baseName}_${index + 1}_${sanitizeFileName(code.data)}.webm`;
+                zip.file(fileName, code.blob);
+            });
+
+            try {
+                const zipBlob = await zip.generateAsync({ type: "blob" });
+                downloadBlob(URL.createObjectURL(zipBlob), `${baseName}_videos.zip`);
+                updateMessage("Đã tạo file zip thành công! Quá trình tải xuống sẽ bắt đầu.", 'success', msgAreaElement);
+            } catch (err) {
+                console.error("Lỗi khi tạo file zip:", err);
+                updateMessage("Đã xảy ra lỗi khi tạo file zip.", 'error', msgAreaElement);
+            }
+        }
+
 
         function downloadBlob(blobUrl, fileName) {
             const a = document.createElement('a');
@@ -906,4 +991,3 @@
     </script>
 </body>
 </html>
-
