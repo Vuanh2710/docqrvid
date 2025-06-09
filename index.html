@@ -210,9 +210,11 @@
         window.APP_INITIALIZED = true;
 
         // --- Google API Configuration ---
-        // QUAN TRỌNG: Thay thế các giá trị dưới đây bằng thông tin từ Google Cloud Console của bạn
-        // LỖI "API key not valid": Hãy chắc chắn rằng bạn đã sao chép chính xác API Key từ Google Cloud.
-        // Đồng thời, kiểm tra xem bạn đã bật "Google Drive API" và "Google Sheets API" cho key này chưa.
+        // QUAN TRỌNG: Thay thế các giá trị dưới đây bằng thông tin từ Google Cloud Console của bạn.
+        // LỖI "API key not valid": Hãy chắc chắn rằng bạn đã:
+        // 1. Sao chép chính xác API Key từ Google Cloud.
+        // 2. Bật "Google Drive API" và "Google Sheets API" cho key này.
+        // 3. Thiết lập giới hạn HTTP Referrer để cho phép tên miền của bạn (nếu có).
         const API_KEY = 'AIzaSyD7pU2xCHySsNnfgvIyCw8h25kwwU7dKo4'; // <<<< THAY BẰNG API KEY CỦA BẠN
         const CLIENT_ID = '31711163070-g0hhnvlhlvh91jij0k50k58o6usijj17.apps.googleusercontent.com'; // <<<< THAY BẰNG CLIENT ID CỦA BẠN
         const DISCOVERY_DOCS = [
@@ -354,7 +356,10 @@
         function switchTab(targetTab) {
              // Handle button active state
              tabButtons.forEach(btn => btn.classList.remove('active'));
-             document.querySelector(`[data-tab="${targetTab}"]`).classList.add('active');
+             const activeButton = document.querySelector(`[data-tab="${targetTab}"]`);
+             if (activeButton) {
+                activeButton.classList.add('active');
+             }
 
              // Handle content visibility using Tailwind's 'hidden' class
              tabContents.forEach(content => {
@@ -373,22 +378,29 @@
         
         // --- Google API Functions ---
         async function initializeGapiClient() {
-            // This function is called once the gapi.client library is loaded
             try {
                 await gapi.client.init({
                     apiKey: API_KEY,
                     discoveryDocs: DISCOVERY_DOCS,
                 });
-
-                // The GIS library is loaded asynchronously. We can now initialize the token client.
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID,
                     scope: SCOPES,
-                    callback: gapiTokenCallback, // This callback handles the token response
+                    callback: gapiTokenCallback,
                 });
             } catch (e) {
                 console.error("Error initializing Google API Client:", e);
-                googleAuthMessageArea.textContent = `Lỗi khởi tạo Google API: ${e.message || e.toString()}`;
+                let userMessage = "Lỗi khởi tạo Google API.";
+                if (e.result && e.result.error) {
+                    const error = e.result.error;
+                    userMessage = `Lỗi Google API: API Key không hợp lệ.`;
+                    if (error.details && error.details[0] && error.details[0].reason === 'API_KEY_INVALID') {
+                         userMessage += " Vui lòng kiểm tra lại API Key trong mã nguồn và đảm bảo nó hợp lệ, không có giới hạn và đã bật Google Drive/Sheets API trong Google Cloud Console.";
+                    }
+                } else if (e.message) {
+                     userMessage = `Lỗi: ${e.message}`;
+                }
+                googleAuthMessageArea.textContent = userMessage;
             }
         }
         
@@ -406,6 +418,8 @@
         function handleSignIn() {
             if (tokenClient) {
                 tokenClient.requestAccessToken({prompt: 'consent'});
+            } else {
+                googleAuthMessageArea.textContent = 'Google Client chưa sẵn sàng, vui lòng thử lại sau giây lát.';
             }
         }
 
