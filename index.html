@@ -293,11 +293,17 @@
             if ('BarcodeDetector' in window) {
                 try {
                     const supportedFormats = await window.BarcodeDetector.getSupportedFormats();
-                    barcodeDetector = new window.BarcodeDetector({ formats: supportedFormats });
-                    console.log('Barcode Detector initialized with formats:', supportedFormats);
+                    if (supportedFormats.length > 0) {
+                        barcodeDetector = new window.BarcodeDetector({ formats: supportedFormats });
+                        console.log('Barcode Detector initialized with formats:', supportedFormats);
+                    } else {
+                        throw new Error("No supported formats found");
+                    }
                 } catch (e) {
                     console.error("Lỗi khởi tạo Barcode Detector:", e);
-                    updateMessage("Không thể khởi tạo tính năng quét Barcode.", "error", messageArea);
+                    barcodeDetector = null; // Ensure it's null if it fails
+                    updateMessage("Không thể khởi tạo tính năng quét Barcode. Chỉ quét được QR.", "warning", messageArea);
+                    updateMessage("Không thể khởi tạo tính năng quét Barcode. Chỉ quét được QR.", "warning", cameraMessageAreaEl);
                 }
             } else {
                 updateMessage("Trình duyệt này không hỗ trợ quét Barcode. Chỉ có thể quét mã QR.", "warning", messageArea);
@@ -612,9 +618,10 @@
                 const endTime = (i + 1 < detectedFileCodes.length) ? detectedFileCodes[i+1].time : currentFileVideoDuration;
                 
                 const blob = await recordSegmentToFile(startTime, endTime);
-                detectedFileCodes[i].blob = blob;
-
-                createFileSegmentUI(i, detectedFileCodes[i], startTime, endTime, blob);
+                if (blob) {
+                    detectedFileCodes[i].blob = blob;
+                    createFileSegmentUI(i, detectedFileCodes[i], startTime, endTime, blob);
+                }
             }
              updateMessage("Các đoạn video từ file đã sẵn sàng.", "success", messageArea);
         }
@@ -622,16 +629,27 @@
         function recordSegmentToFile(startTime, endTime) {
             return new Promise(async (resolve, reject) => {
                  if (!('MediaRecorder' in window) || !videoPlayer.captureStream) {
-                    return reject(new Error('Trình duyệt không hỗ trợ ghi video.'));
+                    updateMessage("Trình duyệt không hỗ trợ ghi video.", 'error', messageArea);
+                    return resolve(null);
+                }
+                
+                const mimeType = getSupportedMimeType();
+                if (!mimeType) {
+                    updateMessage("Không tìm thấy định dạng video được hỗ trợ để ghi.", 'error', messageArea);
+                    return resolve(null);
                 }
                 
                 const recordedChunks = [];
                 const stream = videoPlayer.captureStream();
-                const mediaRecorder = new MediaRecorder(stream, { mimeType: getSupportedMimeType() });
+                const mediaRecorder = new MediaRecorder(stream, { mimeType });
 
                 mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
                 mediaRecorder.onstop = () => resolve(new Blob(recordedChunks, { type: mediaRecorder.mimeType }));
-                mediaRecorder.onerror = e => reject(e.error);
+                mediaRecorder.onerror = e => {
+                    console.error("MediaRecorder error:", e);
+                    updateMessage("Lỗi khi ghi video.", 'error', messageArea);
+                    resolve(null);
+                };
 
                 const originalMutedState = videoPlayer.muted; 
                 videoPlayer.muted = true;
@@ -719,10 +737,20 @@
 
         function startNewCameraSegmentRecording() {
             if (!cameraStream) return;
-            currentCameraSegmentChunks = [];
+            
             const mimeType = getSupportedMimeType();
+             if (!mimeType) {
+                updateMessage("Không tìm thấy định dạng video được hỗ trợ để ghi.", 'error', cameraMessageAreaEl);
+                return;
+            }
+
+            currentCameraSegmentChunks = [];
             currentCameraSegmentRecorder = new MediaRecorder(cameraStream, { mimeType });
             currentCameraSegmentRecorder.ondataavailable = e => { if (e.data.size > 0) currentCameraSegmentChunks.push(e.data); };
+            currentCameraSegmentRecorder.onerror = e => {
+                 console.error("MediaRecorder error:", e);
+                 updateMessage("Lỗi khi ghi video.", 'error', cameraMessageAreaEl);
+            };
             currentCameraSegmentRecorder.start();
         }
         
@@ -764,7 +792,7 @@
                 startCameraButton.disabled = false;
                 stopCameraButton.disabled = true;
                 
-                if (detectedCameraCodes.length > 0) {
+                if (detectedCameraCodes.some(c => c.blob && c.blob.size > 0)) {
                     exportCameraCsvButton.disabled = false;
                     downloadAllCameraSegmentsButton.disabled = false;
                     if(gapi.client.getToken()) uploadSheetCameraButton.disabled = false;
@@ -855,7 +883,8 @@
         function createFileSegmentUI(index, codeInfo, startTime, endTime, blob) {
             const segmentWrapper = document.createElement('div');
             segmentWrapper.className = 'p-3 mb-2 bg-green-50 rounded-md shadow-sm';
-            const fileName = `FILE_CODE_${sanitizeFileName(codeInfo.data)}_${startTime.toFixed(1)}s.webm`;
+            const extension = getMimeTypeExtension(blob.type);
+            const fileName = `FILE_CODE_${sanitizeFileName(codeInfo.data)}_${startTime.toFixed(1)}s.${extension}`;
 
             segmentWrapper.innerHTML = `
                 <p class="font-semibold text-green-700">Đoạn ${index + 1}: ${escapeHTML(codeInfo.type)}</p>
@@ -881,7 +910,8 @@
             cameraSegmentsEl.querySelector('p.italic')?.remove();
             const segmentWrapper = document.createElement('div');
             segmentWrapper.className = 'p-3 mb-2 bg-blue-50 rounded-md shadow-sm';
-            const fileName = `CAM_CODE_${sanitizeFileName(codeInfo.data)}_${new Date(codeInfo.startTimeMs).toLocaleTimeString().replace(/:/g,'-')}.webm`;
+            const extension = getMimeTypeExtension(blob.type);
+            const fileName = `CAM_CODE_${sanitizeFileName(codeInfo.data)}_${new Date(codeInfo.startTimeMs).toLocaleTimeString().replace(/:/g,'-')}.${extension}`;
             const blobUrl = URL.createObjectURL(blob);
             
             segmentWrapper.innerHTML = `
@@ -926,8 +956,27 @@
         }
         
         function getSupportedMimeType() {
-            const types = ['video/webm; codecs=vp9,opus', 'video/webm; codecs=vp8,opus', 'video/webm'];
-            return types.find(type => MediaRecorder.isTypeSupported(type)) || 'video/webm';
+            // FIX for iOS: Prioritize mp4 over webm
+            const types = [
+                'video/mp4; codecs="avc1.42E01E"', // Common MP4 format for broader compatibility
+                'video/mp4',
+                'video/webm; codecs=vp9,opus',
+                'video/webm; codecs=vp8,opus',
+                'video/webm',
+            ];
+            for (const type of types) {
+                if (MediaRecorder.isTypeSupported(type)) {
+                    return type;
+                }
+            }
+            return null; // No supported type found
+        }
+        
+        function getMimeTypeExtension(mimeType) {
+            if (mimeType.includes('mp4')) {
+                return 'mp4';
+            }
+            return 'webm';
         }
         
         async function downloadAllSegments(codes, baseName, msgAreaElement) {
@@ -945,7 +994,8 @@
 
             const zip = new JSZip();
             segmentsWithBlobs.forEach((code, index) => {
-                const fileName = `${baseName}_${index + 1}_${sanitizeFileName(code.data)}.webm`;
+                const extension = getMimeTypeExtension(code.blob.type);
+                const fileName = `${baseName}_${index + 1}_${sanitizeFileName(code.data)}.${extension}`;
                 zip.file(fileName, code.blob);
             });
 
