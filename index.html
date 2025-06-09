@@ -159,12 +159,20 @@
                     </div>
                 </section>
 
-                <section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <button id="startCameraButton" class="btn btn-primary">Bắt đầu Ghi</button>
-                    <button id="stopCameraButton" disabled class="btn btn-danger">Dừng Ghi</button>
-                    <button id="exportCameraCsvButton" disabled class="btn btn-success">Xuất CSV</button>
-                    <button id="downloadAllCameraSegmentsButton" disabled class="btn btn-special">Tải tất cả</button>
-                    <button id="uploadSheetCameraButton" disabled class="btn btn-success col-span-2 md:col-span-4 mt-2">Tải lên Google Sheets</button>
+                <section class="mb-6 space-y-3">
+                    <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <button id="startCameraButton" class="btn btn-primary">Bắt đầu Ghi</button>
+                        <button id="stopCameraButton" disabled class="btn btn-danger">Dừng Ghi</button>
+                        <button id="exportCameraCsvButton" disabled class="btn btn-success">Xuất CSV</button>
+                        <button id="downloadAllCameraSegmentsButton" disabled class="btn btn-special">Tải tất cả</button>
+                    </div>
+                     <div class="grid grid-cols-1">
+                        <button id="uploadSheetCameraButton" disabled class="btn btn-success">Tải lên Google Sheets</button>
+                    </div>
+                    <div class="flex items-center justify-center p-3 bg-gray-100 rounded-lg">
+                        <input type="checkbox" id="autoUploadCheckbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500" disabled>
+                        <label for="autoUploadCheckbox" class="ml-2 block text-sm text-gray-700">Tự động tải lên Google Drive</label>
+                    </div>
                 </section>
 
                 <div class="mb-4 min-h-[40px]">
@@ -198,8 +206,8 @@
     <script>
         // --- Google API Configuration ---
         // QUAN TRỌNG: Thay thế các giá trị dưới đây bằng thông tin từ Google Cloud Console của bạn
-        const API_KEY = 'YOUR_API_KEY'; // <<<< THAY BẰNG API KEY CỦA BẠN
-        const CLIENT_ID = 'YOUR_CLIENT_ID'; // <<<< THAY BẰNG CLIENT ID CỦA BẠN
+        const API_KEY = 'AIzaSyD7pU2xCHySsNnfgvIyCw8h25kwwU7dKo4'; // <<<< THAY BẰNG API KEY CỦA BẠN
+        const CLIENT_ID = '31711163070-g0hhnvlhlvh91jij0k50k58o6usijj17.apps.googleusercontent.com'; // <<<< THAY BẰNG CLIENT ID CỦA BẠN
         const DISCOVERY_DOCS = [
             "https://sheets.googleapis.com/$discovery/rest?version=v4",
             "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
@@ -382,7 +390,7 @@
             if (tokenResponse && tokenResponse.access_token) {
                 gapi.client.setToken(tokenResponse);
                 updateSigninStatus(true);
-                googleAuthMessageArea.textContent = 'Đã đăng nhập Google thành công!';
+                
             } else {
                 updateSigninStatus(false);
                 googleAuthMessageArea.textContent = 'Đăng nhập Google thất bại.';
@@ -401,25 +409,41 @@
                 google.accounts.oauth2.revoke(token.access_token, () => {
                     gapi.client.setToken('');
                     updateSigninStatus(false);
-                    googleAuthMessageArea.textContent = 'Đã đăng xuất.';
                 });
             }
         }
 
         function updateSigninStatus(isSignedIn) {
+            const autoUploadCheckbox = document.getElementById('autoUploadCheckbox');
             if (isSignedIn) {
                 googleSignInButton.classList.add('hidden');
                 googleSignOutButton.classList.remove('hidden');
-                uploadSheetFileButton.disabled = detectedFileCodes.length === 0;
-                uploadSheetCameraButton.disabled = detectedCameraCodes.length === 0;
-                document.querySelectorAll('.upload-drive-button').forEach(btn => btn.disabled = false);
+                googleAuthMessageArea.textContent = 'Đã đăng nhập thành công!';
+                autoUploadCheckbox.disabled = false;
             } else {
                 googleSignInButton.classList.remove('hidden');
                 googleSignOutButton.classList.add('hidden');
-                uploadSheetFileButton.disabled = true;
-                uploadSheetCameraButton.disabled = true;
-                document.querySelectorAll('.upload-drive-button').forEach(btn => btn.disabled = true);
+                googleAuthMessageArea.textContent = '';
+                autoUploadCheckbox.disabled = true;
+                autoUploadCheckbox.checked = false;
             }
+            updateAllButtonStates();
+        }
+
+        function updateAllButtonStates() {
+            const isSignedIn = !!(gapi.client && gapi.client.getToken());
+            
+            // File Tab
+            uploadSheetFileButton.disabled = detectedFileCodes.length === 0 || !isSignedIn;
+            document.querySelectorAll('#segments .upload-drive-button').forEach(btn => {
+                btn.disabled = !isSignedIn || btn.textContent.includes("Đã tải lên") || btn.textContent.includes("Đang tải");
+            });
+            
+            // Camera Tab
+            uploadSheetCameraButton.disabled = detectedCameraCodes.length === 0 || !isSignedIn;
+            document.querySelectorAll('#cameraSegments .upload-drive-button').forEach(btn => {
+                btn.disabled = !isSignedIn || btn.textContent.includes("Đã tải lên") || btn.textContent.includes("Đang tải");
+            });
         }
         
         async function createAndUploadToSheet(dataArray, titleSuffix, msgAreaElement) {
@@ -459,13 +483,12 @@
 
         async function uploadVideoToDrive(blob, fileName, msgAreaElement, buttonElement) {
             if (!gapi.client.getToken()) {
-                updateMessage("Bạn chưa đăng nhập Google.", "error", msgAreaElement); return;
+                updateMessage("Bạn chưa đăng nhập Google để tải lên.", "error", msgAreaElement); return;
             }
              if (!blob) {
                 updateMessage("Không có dữ liệu video để tải lên.", "error", msgAreaElement); return;
             }
             
-            const originalButtonText = buttonElement.innerHTML;
             buttonElement.disabled = true;
             buttonElement.innerHTML = 'Đang tải... <span class="loader"></span>';
 
@@ -485,11 +508,13 @@
                 
                 updateMessage(`File "${fileName}" đã tải lên Google Drive!`, "success", msgAreaElement);
                 buttonElement.innerHTML = 'Đã tải lên';
+                buttonElement.classList.remove('bg-purple-500', 'hover:bg-purple-600');
                 buttonElement.classList.add('bg-gray-400');
+
             } catch (err) {
                 updateMessage(`Lỗi tải lên Google Drive: ${err.message}`, "error", msgAreaElement);
                 buttonElement.disabled = false;
-                buttonElement.innerHTML = originalButtonText;
+                buttonElement.innerHTML = 'Thử lại';
             }
         }
 
@@ -887,7 +912,7 @@
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button class="play-btn action-button bg-blue-500 hover:bg-blue-600 text-white text-sm py-1">Phát</button>
                     <button class="download-btn action-button bg-yellow-500 hover:bg-yellow-600 text-white text-sm py-1">Tải xuống</button>
-                    <button class="upload-drive-button action-button google-button bg-purple-500 hover:bg-purple-600 text-white text-sm py-1" ${!gapi.client?.getToken() && 'disabled'}>Tải lên Drive</button>
+                    <button class="upload-drive-button action-button google-button bg-purple-500 hover:bg-purple-600 text-white text-sm py-1" ${!(gapi.client && gapi.client.getToken()) && 'disabled'}>Tải lên Drive</button>
                 </div>
             `;
             
@@ -915,19 +940,25 @@
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
                     <button class="play-btn action-button bg-sky-500 hover:bg-sky-600 text-white text-sm py-1">Phát</button>
                     <button class="download-btn action-button bg-teal-500 hover:bg-teal-600 text-white text-sm py-1">Tải xuống</button>
-                    <button class="upload-drive-button action-button google-button bg-purple-500 hover:bg-purple-600 text-white text-sm py-1" ${!gapi.client?.getToken() && 'disabled'}>Tải lên Drive</button>
+                    <button class="upload-drive-button action-button google-button bg-purple-500 hover:bg-purple-600 text-white text-sm py-1" ${!(gapi.client && gapi.client.getToken()) && 'disabled'}>Tải lên Drive</button>
                 </div>
                 <div class="video-container mt-2"></div>
             `;
             
+            const uploadButton = segmentWrapper.querySelector('.upload-drive-button');
             segmentWrapper.querySelector('.play-btn').onclick = () => {
                 const container = segmentWrapper.querySelector('.video-container');
                 container.innerHTML = `<video src="${blobUrl}" controls autoplay class="w-full rounded-md mt-2"></video>`;
             };
             segmentWrapper.querySelector('.download-btn').onclick = () => downloadBlob(blobUrl, fileName);
-            segmentWrapper.querySelector('.upload-drive-button').onclick = (e) => uploadVideoToDrive(blob, fileName, cameraMessageAreaEl, e.currentTarget);
+            uploadButton.onclick = (e) => uploadVideoToDrive(blob, fileName, cameraMessageAreaEl, e.currentTarget);
             
             cameraSegmentsEl.appendChild(segmentWrapper);
+
+            const autoUploadCheckbox = document.getElementById('autoUploadCheckbox');
+            if (autoUploadCheckbox.checked && gapi.client && gapi.client.getToken()) {
+                uploadVideoToDrive(blob, fileName, cameraMessageAreaEl, uploadButton);
+            }
         }
 
         // --- General Utility Functions ---
