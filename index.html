@@ -13,27 +13,53 @@
     <!-- Google API Client -->
     <script src="https://apis.google.com/js/api.js"></script>
     <style>
-        body { font-family: 'Inter', sans-serif; }
-        .tab-button {
-            transition: background-color 0.3s ease, color 0.3s ease;
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #f0f4f8; /* Fallback background */
         }
         .tab-button.active {
-            border-color: theme('colors.indigo.500');
-            background-color: theme('colors.indigo.500');
-            color: white;
+            background-color: white;
+            color: #4f46e5; /* theme('colors.indigo.600') */
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
         }
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-
-        .segment-button:focus, .segment-button:active,
-        .download-button:focus, .download-button:active,
-        .action-button:focus, .action-button:active,
-        .google-button:focus, .google-button:active,
-        select:focus {
-            outline: none;
-            box-shadow: 0 0 0 2px theme('colors.indigo.500');
+        .btn {
+            padding: 0.75rem 1.25rem;
+            border-radius: 0.5rem;
+            font-weight: 600;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+            text-align: center;
         }
-        #messageArea p, #cameraMessageArea p, #googleAuthMessageArea p { word-break: break-word; }
+        .btn:hover {
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -2px rgb(0 0 0 / 0.1);
+            transform: translateY(-2px);
+        }
+        .btn:disabled {
+            background-color: #9ca3af; /* theme('colors.gray.400') */
+            cursor: not-allowed;
+            box-shadow: none;
+            transform: none;
+        }
+        .btn-primary { background-color: #4f46e5; color: white; } /* indigo-600 */
+        .btn-primary:hover { background-color: #4338ca; } /* indigo-700 */
+        .btn-danger { background-color: #dc2626; color: white; } /* red-600 */
+        .btn-danger:hover { background-color: #b91c1c; } /* red-700 */
+        .btn-success { background-color: #16a34a; color: white; } /* green-600 */
+        .btn-success:hover { background-color: #15803d; } /* green-700 */
+        .btn-special { background-color: #8b5cf6; color: white; } /* purple-600 */
+        .btn-special:hover { background-color: #7c3aed; } /* purple-700 */
+        
+        .detection-popup {
+            animation: fadeInOut 2s ease-in-out;
+        }
+        @keyframes fadeInOut {
+            0%, 100% { opacity: 0; transform: scale(0.7); }
+            20%, 80% { opacity: 1; transform: scale(1); }
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
         .loader {
             border: 4px solid #f3f3f3;
             border-top: 4px solid #3498db;
@@ -44,53 +70,35 @@
             display: inline-block;
             margin-left: 8px;
         }
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
-        #cameraPlayer {
-            max-width: 100%;
-            height: auto;
-            display: block;
-            margin-left: auto;
-            margin-right: auto;
-        }
-        .detection-popup {
-            animation: fadeInOut 2s ease-in-out;
-        }
-        @keyframes fadeInOut {
-            0%, 100% { opacity: 0; transform: scale(0.7); }
-            20%, 80% { opacity: 1; transform: scale(1); }
-        }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen p-4 md:p-8 flex items-center justify-center">
-    <div class="container mx-auto max-w-4xl bg-white p-5 md:p-8 rounded-xl shadow-2xl">
+<body class="bg-gradient-to-br from-indigo-50 to-blue-100 min-h-screen p-4 md:p-8 flex items-center justify-center">
+    <div class="container mx-auto max-w-4xl bg-white/80 backdrop-blur-sm p-5 md:p-8 rounded-2xl shadow-2xl border border-gray-200/50">
         <header class="mb-6 md:mb-8">
-            <h1 class="text-2xl md:text-3xl font-bold text-center text-gray-800">Trình Xử Lý Video QR/Barcode & Tích Hợp Google</h1>
+            <h1 class="text-3xl md:text-4xl font-bold text-center text-gray-800 tracking-tight">Trình Xử Lý Video & Mã Code</h1>
         </header>
 
         <!-- Google Authentication Section -->
-        <section class="mb-6 p-4 border border-gray-300 rounded-lg bg-gray-50">
-            <h2 class="text-lg font-semibold text-gray-700 mb-2">Kết nối Google</h2>
-            <div id="googleAuthControls">
-                <button id="googleSignInButton" class="google-button bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded-lg text-sm">
+        <section class="mb-8 p-4 bg-white/60 rounded-xl shadow-md">
+            <h2 class="text-lg font-semibold text-gray-700 mb-3">Kết nối Google</h2>
+            <div id="googleAuthControls" class="flex items-center space-x-4">
+                <button id="googleSignInButton" class="btn bg-blue-500 hover:bg-blue-600 text-white py-2 px-4 text-sm">
                     Đăng nhập với Google
                 </button>
-                <button id="googleSignOutButton" class="google-button bg-red-500 hover:bg-red-600 text-white font-bold py-2 px-4 rounded-lg text-sm hidden">
+                <button id="googleSignOutButton" class="btn bg-red-500 hover:bg-red-600 text-white py-2 px-4 text-sm hidden">
                     Đăng xuất Google
                 </button>
+                 <div id="googleAuthMessageArea" class="text-sm text-gray-700"></div>
             </div>
-            <div id="googleAuthMessageArea" class="mt-2 text-sm text-gray-600 min-h-[20px]">Vui lòng đăng nhập để sử dụng tính năng tải lên Google Sheets/Drive.</div>
         </section>
 
         <!-- Tabs Navigation -->
-        <div class="mb-6 border-b border-gray-200">
-            <nav class="-mb-px flex space-x-4" aria-label="Tabs">
-                <button data-tab="fileTab" class="tab-button active whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm rounded-t-md text-indigo-600 hover:bg-indigo-50">
+        <div class="mb-6">
+            <nav class="p-1.5 flex space-x-2 bg-gray-200/70 rounded-xl" aria-label="Tabs">
+                <button data-tab="fileTab" class="tab-button active flex-1 py-2 px-4 rounded-lg font-medium text-sm transition-all duration-300">
                     Quét Video Từ File
                 </button>
-                <button data-tab="cameraTab" class="tab-button whitespace-nowrap py-3 px-4 border-b-2 font-medium text-sm rounded-t-md text-gray-500 hover:text-indigo-600 hover:bg-indigo-50">
+                <button data-tab="cameraTab" class="tab-button flex-1 text-gray-600 py-2 px-4 rounded-lg font-medium text-sm transition-all duration-300">
                     Ghi & Quét Từ Camera
                 </button>
             </nav>
@@ -98,10 +106,10 @@
 
         <div>
             <!-- File Scanning Tab -->
-            <div id="fileTabContent" class="tab-content active">
+            <div id="fileTabContent" class="tab-content">
                 <section class="mb-6">
                     <label for="videoFile" class="block text-sm font-medium text-gray-700 mb-2">Chọn file video của bạn:</label>
-                    <input type="file" id="videoFile" accept="video/*" class="input-field">
+                    <input type="file" id="videoFile" accept="video/*" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-indigo-50 file:text-indigo-700 hover:file:bg-indigo-100 cursor-pointer border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent">
                 </section>
 
                 <section class="mb-6 relative">
@@ -112,37 +120,29 @@
                     </div>
                 </section>
 
-                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center flex-wrap">
-                    <button id="scanButton" disabled class="action-button primary-button">
-                        Bắt đầu quét Mã (File)
-                    </button>
-                    <button id="exportCsvButton" disabled class="action-button success-button">
-                        Xuất CSV (File)
-                    </button>
-                    <button id="downloadAllFileSegmentsButton" disabled class="action-button bg-purple-600 hover:bg-purple-700 text-white">
-                        Tải xuống tất cả (File)
-                    </button>
-                    <button id="uploadSheetFileButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400 mt-2 md:mt-0">
-                        Tải lên Google Sheets (File)
-                    </button>
+                <section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button id="scanButton" disabled class="btn btn-primary col-span-2 md:col-span-1">Bắt đầu quét</button>
+                    <button id="exportCsvButton" disabled class="btn btn-success">Xuất CSV</button>
+                    <button id="downloadAllFileSegmentsButton" disabled class="btn btn-special">Tải tất cả</button>
+                    <button id="uploadSheetFileButton" disabled class="btn btn-success">Tải lên Sheets</button>
                 </section>
 
                 <div class="mb-4 min-h-[40px]">
                     <div id="messageArea" class="message-box">
-                         <p class="text-gray-500">Vui lòng chọn một video để bắt đầu.</p>
+                         <p class="text-gray-500 text-center">Vui lòng chọn một video để bắt đầu.</p>
                     </div>
                 </div>
 
                 <div class="grid md:grid-cols-2 gap-6">
-                    <section class="info-box">
-                        <h2 class="info-box-title">Mã Code đã phát hiện (File):</h2>
-                        <div id="codeLog" class="info-box-content">
+                    <section class="bg-white/50 p-4 rounded-lg shadow-inner">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-3 border-b-2 border-gray-200 pb-2">Mã đã phát hiện (File):</h2>
+                        <div id="codeLog" class="space-y-2 max-h-60 overflow-y-auto text-sm pr-2">
                             <p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>
                         </div>
                     </section>
-                    <section class="info-box">
-                        <h2 class="info-box-title">Các đoạn video (File):</h2>
-                        <div id="segments" class="info-box-content">
+                    <section class="bg-white/50 p-4 rounded-lg shadow-inner">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-3 border-b-2 border-gray-200 pb-2">Các đoạn video (File):</h2>
+                        <div id="segments" class="space-y-2 max-h-60 overflow-y-auto text-sm pr-2">
                              <p class="text-gray-500 italic">Chưa có đoạn video nào được tạo.</p>
                         </div>
                     </section>
@@ -150,7 +150,7 @@
             </div>
 
             <!-- Camera Recording Tab -->
-            <div id="cameraTabContent" class="tab-content">
+            <div id="cameraTabContent" class="tab-content hidden">
                 <section class="mb-6 relative">
                     <video id="cameraPlayer" autoplay playsinline muted class="w-full rounded-lg shadow-md aspect-video bg-black"></video>
                     <canvas id="cameraScannerCanvas" class="hidden"></canvas>
@@ -159,40 +159,30 @@
                     </div>
                 </section>
 
-                <section class="mb-6 text-center space-y-3 md:space-y-0 md:space-x-3 flex flex-col md:flex-row justify-center flex-wrap">
-                    <button id="startCameraButton" class="action-button bg-blue-600 hover:bg-blue-700 text-white font-bold py-2.5 px-6 rounded-lg">
-                        Bắt đầu Ghi & Quét Mã
-                    </button>
-                    <button id="stopCameraButton" disabled class="action-button danger-button">
-                        Dừng Ghi & Quét
-                    </button>
-                    <button id="exportCameraCsvButton" disabled class="action-button success-button">
-                        Xuất CSV (Camera)
-                    </button>
-                    <button id="downloadAllCameraSegmentsButton" disabled class="action-button bg-purple-600 hover:bg-purple-700 text-white">
-                        Tải xuống tất cả (Camera)
-                    </button>
-                     <button id="uploadSheetCameraButton" disabled class="action-button google-button bg-green-700 hover:bg-green-800 text-white font-bold py-2.5 px-6 rounded-lg text-sm disabled:bg-gray-400 mt-2 md:mt-0">
-                        Tải lên Google Sheets (Camera)
-                    </button>
+                <section class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <button id="startCameraButton" class="btn btn-primary">Bắt đầu Ghi</button>
+                    <button id="stopCameraButton" disabled class="btn btn-danger">Dừng Ghi</button>
+                    <button id="exportCameraCsvButton" disabled class="btn btn-success">Xuất CSV</button>
+                    <button id="downloadAllCameraSegmentsButton" disabled class="btn btn-special">Tải tất cả</button>
+                    <button id="uploadSheetCameraButton" disabled class="btn btn-success col-span-2 md:col-span-4 mt-2">Tải lên Google Sheets</button>
                 </section>
 
                 <div class="mb-4 min-h-[40px]">
                     <div id="cameraMessageArea" class="message-box">
-                         <p class="text-gray-500">Nhấn "Bắt đầu Ghi & Quét Mã" để sử dụng camera.</p>
+                         <p class="text-gray-500 text-center">Nhấn "Bắt đầu Ghi & Quét Mã" để sử dụng camera.</p>
                     </div>
                 </div>
 
                 <div class="grid md:grid-cols-2 gap-6">
-                    <section class="info-box">
-                        <h2 class="info-box-title">Mã Code đã phát hiện (Camera):</h2>
-                        <div id="cameraCodeLog" class="info-box-content">
+                    <section class="bg-white/50 p-4 rounded-lg shadow-inner">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-3 border-b-2 border-gray-200 pb-2">Mã đã phát hiện (Camera):</h2>
+                        <div id="cameraCodeLog" class="space-y-2 max-h-60 overflow-y-auto text-sm pr-2">
                             <p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>
                         </div>
                     </section>
-                    <section class="info-box">
-                        <h2 class="info-box-title">Các đoạn video đã ghi (Camera):</h2>
-                        <div id="cameraSegments" class="info-box-content">
+                    <section class="bg-white/50 p-4 rounded-lg shadow-inner">
+                        <h2 class="text-lg font-semibold text-gray-800 mb-3 border-b-2 border-gray-200 pb-2">Các đoạn video đã ghi (Camera):</h2>
+                        <div id="cameraSegments" class="space-y-2 max-h-60 overflow-y-auto text-sm pr-2">
                              <p class="text-gray-500 italic">Chưa có đoạn video nào được ghi.</p>
                         </div>
                     </section>
@@ -347,15 +337,19 @@
         }
         
         function switchTab(targetTab) {
+             // Handle button active state
              tabButtons.forEach(btn => btn.classList.remove('active'));
              document.querySelector(`[data-tab="${targetTab}"]`).classList.add('active');
-             
+
+             // Handle content visibility using Tailwind's 'hidden' class
              tabContents.forEach(content => {
-                 content.classList.remove('active');
-                 if (content.id === targetTab + 'Content') {
-                     content.classList.add('active');
-                 }
+                if (content.id === targetTab + 'Content') {
+                    content.classList.remove('hidden');
+                } else {
+                    content.classList.add('hidden');
+                }
              });
+
              // Stop camera if user switches away from camera tab
              if (targetTab !== 'cameraTab' && isCameraRecording) {
                  stopCameraScanAndRecord();
@@ -532,7 +526,7 @@
             downloadAllFileSegmentsButton.disabled = true;
             uploadSheetFileButton.disabled = true;
             fileVideoLoaded = false;
-            scanButton.textContent = 'Bắt đầu quét Mã (File)';
+            scanButton.textContent = 'Bắt đầu quét';
         }
 
         function toggleFileScan() {
@@ -542,7 +536,7 @@
         function stopFileScan() {
             if (fileScanTimeoutId) clearTimeout(fileScanTimeoutId);
             isFileScanning = false;
-            scanButton.textContent = 'Bắt đầu quét Mã (File)';
+            scanButton.textContent = 'Bắt đầu quét';
             scanButton.disabled = false;
             updateMessage('Đã dừng quét file.', 'info', messageArea);
         }
@@ -550,7 +544,7 @@
         async function startFullFileScan() {
             if (!fileVideoLoaded) return;
             isFileScanning = true;
-            scanButton.textContent = 'Dừng quét File (0%)';
+            scanButton.textContent = 'Dừng quét (0%)';
             updateMessage('Bắt đầu quét file...', 'info', messageArea, true);
             
             detectedFileCodes = [];
@@ -590,7 +584,7 @@
                 }
                 
                 const progress = (currentTimeToScan / currentFileVideoDuration) * 100;
-                scanButton.textContent = `Dừng quét File (${progress.toFixed(0)}%)`;
+                scanButton.textContent = `Dừng quét (${progress.toFixed(0)}%)`;
                 
                 fileScanTimeoutId = setTimeout(() => processVideoFrame(currentTimeToScan + 0.5), 50); // Scan every 0.5s
             };
@@ -598,7 +592,7 @@
 
         function finishFileScan() {
             isFileScanning = false;
-            scanButton.textContent = 'Bắt đầu quét Mã (File)';
+            scanButton.textContent = 'Bắt đầu quét';
             if (detectedFileCodes.length > 0) {
                 updateMessage(`Quét xong! Tìm thấy ${detectedFileCodes.length} mã. Đang xử lý video...`, 'success', messageArea, true);
                 generateVideoFileSegments();
