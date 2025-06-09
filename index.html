@@ -10,8 +10,10 @@
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <!-- JSZip for zipping files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- Google API Client -->
+    <!-- Google Platform Library -->
     <script src="https://apis.google.com/js/api.js"></script>
+    <!-- Google Identity Services (GIS) Client -->
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
     <style>
         body { 
             font-family: 'Inter', sans-serif; 
@@ -204,8 +206,13 @@
     </div>
 
     <script>
+    if (typeof window.APP_INITIALIZED === 'undefined') {
+        window.APP_INITIALIZED = true;
+
         // --- Google API Configuration ---
         // QUAN TRỌNG: Thay thế các giá trị dưới đây bằng thông tin từ Google Cloud Console của bạn
+        // LỖI "API key not valid": Hãy chắc chắn rằng bạn đã sao chép chính xác API Key từ Google Cloud.
+        // Đồng thời, kiểm tra xem bạn đã bật "Google Drive API" và "Google Sheets API" cho key này chưa.
         const API_KEY = 'AIzaSyD7pU2xCHySsNnfgvIyCw8h25kwwU7dKo4'; // <<<< THAY BẰNG API KEY CỦA BẠN
         const CLIENT_ID = '31711163070-g0hhnvlhlvh91jij0k50k58o6usijj17.apps.googleusercontent.com'; // <<<< THAY BẰNG CLIENT ID CỦA BẠN
         const DISCOVERY_DOCS = [
@@ -311,7 +318,7 @@
             fileScannerCtx = scannerCanvas.getContext('2d', { willReadFrequently: true });
             
             // Trigger Google API load
-            gapi.load('client', handleAuthLoad);
+            gapi.load('client', initializeGapiClient);
         }
 
 
@@ -365,24 +372,23 @@
         }
         
         // --- Google API Functions ---
-        function handleAuthLoad() {
-            gapi.load('client:oauth2', initializeGapiClient);
-        }
-
         async function initializeGapiClient() {
+            // This function is called once the gapi.client library is loaded
             try {
                 await gapi.client.init({
                     apiKey: API_KEY,
                     discoveryDocs: DISCOVERY_DOCS,
                 });
+
+                // The GIS library is loaded asynchronously. We can now initialize the token client.
                 tokenClient = google.accounts.oauth2.initTokenClient({
                     client_id: CLIENT_ID,
                     scope: SCOPES,
-                    callback: gapiTokenCallback,
+                    callback: gapiTokenCallback, // This callback handles the token response
                 });
             } catch (e) {
                 console.error("Error initializing Google API Client:", e);
-                googleAuthMessageArea.textContent = `Lỗi khởi tạo Google API: ${e.details || e.message || e.toString()}`;
+                googleAuthMessageArea.textContent = `Lỗi khởi tạo Google API: ${e.message || e.toString()}`;
             }
         }
         
@@ -1063,6 +1069,7 @@
             downloadBlob(URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })), fileName);
             updateMessage("Đã xuất CSV thành công!", "success", msgAreaElement);
         }
+    } // End of APP_INITIALIZED check
     </script>
 </body>
 </html>
