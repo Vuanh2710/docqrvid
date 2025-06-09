@@ -206,10 +206,9 @@
 
     <script>
     // --- Google Auth Initialization ---
-    // These functions need to be in the global scope to be called by the `onload` attribute.
     let gapiReady = false;
     let gisReady = false;
-
+    
     function onGapiLoad() {
         gapi.load('client', () => {
             gapiReady = true;
@@ -248,14 +247,11 @@
         };
 
         function main() {
-            // DOM Elements
             const googleSignInButton = document.getElementById('googleSignInButton');
             const googleSignOutButton = document.getElementById('googleSignOutButton');
             const googleAuthMessageArea = document.getElementById('googleAuthMessageArea');
             const uploadSheetFileButton = document.getElementById('uploadSheetFileButton');
             const uploadSheetCameraButton = document.getElementById('uploadSheetCameraButton');
-
-            // File Tab DOM Elements
             const videoFile = document.getElementById('videoFile');
             const videoPlayer = document.getElementById('videoPlayer');
             const scannerCanvas = document.getElementById('scannerCanvas');
@@ -265,35 +261,26 @@
             const codeLog = document.getElementById('codeLog');
             const segmentsDiv = document.getElementById('segments');
             const messageArea = document.getElementById('messageArea');
-
-            // Camera Tab DOM Elements
             const cameraPlayerEl = document.getElementById('cameraPlayer');
             const cameraScannerCanvasEl = document.getElementById('cameraScannerCanvas');
             const startCameraButton = document.getElementById('startCameraButton');
             const stopCameraButton = document.getElementById('stopCameraButton');
             const exportCameraCsvButton = document.getElementById('exportCameraCsvButton');
-            const downloadAllCameraSegmentsButton = document.getElementById('downloadAllCameraSegmentsButton');
+            const downloadAllCameraSegmentsButtonCamera = document.getElementById('downloadAllCameraSegmentsButton');
             const cameraCodeLogEl = document.getElementById('cameraCodeLog');
             const cameraSegmentsEl = document.getElementById('cameraSegments');
             const cameraMessageAreaEl = document.getElementById('cameraMessageArea');
-
-            // Tab switching
             const tabButtons = document.querySelectorAll('.tab-button');
             const tabContents = document.querySelectorAll('.tab-content');
-
-            // --- Global State ---
+            
             let barcodeDetector;
             let fileScanTimeoutId = null;
             let notificationTimeout;
-
-            // File Tab State
             let detectedFileCodes = [];
             let isFileScanning = false;
             let fileScannerCtx;
             let currentFileVideoDuration = 0;
             let fileVideoLoaded = false;
-            
-            // Camera Tab State
             let cameraStream;
             let detectedCameraCodes = [];
             let isCameraRecording = false;
@@ -319,9 +306,7 @@
                         const supportedFormats = await window.BarcodeDetector.getSupportedFormats();
                         if (supportedFormats.length > 0) {
                             barcodeDetector = new window.BarcodeDetector({ formats: supportedFormats });
-                        } else {
-                            throw new Error("No supported formats found");
-                        }
+                        } else { throw new Error("No supported formats found"); }
                     } catch (e) {
                         barcodeDetector = null;
                         updateMessage("Không thể khởi tạo tính năng quét Barcode. Chỉ quét được QR.", "warning", messageArea);
@@ -358,7 +343,7 @@
                 startCameraButton.addEventListener('click', startCameraScanAndRecord);
                 stopCameraButton.addEventListener('click', stopCameraScanAndRecord);
                 exportCameraCsvButton.addEventListener('click', () => exportToCSV(detectedCameraCodes, "danh_sach_code_camera.csv", cameraMessageAreaEl));
-                downloadAllCameraSegmentsButton.addEventListener('click', () => downloadAllSegments(detectedCameraCodes, 'CAM', cameraMessageAreaEl));
+                downloadAllCameraSegmentsButtonCamera.addEventListener('click', () => downloadAllSegments(detectedCameraCodes, 'CAM', cameraMessageAreaEl));
             }
             
             function switchTab(targetTab) {
@@ -832,7 +817,7 @@
                     
                     if (detectedCameraCodes.some(c => c.blob && c.blob.size > 0)) {
                         exportCameraCsvButton.disabled = false;
-                        document.getElementById('downloadAllCameraSegmentsButton').disabled = false;
+                        downloadAllCameraSegmentsButton.disabled = false;
                         if(gapi.client.getToken()) uploadSheetCameraButton.disabled = false;
                         updateMessage("Đã dừng ghi. Các đoạn video đã được lưu.", "success", cameraMessageAreaEl);
                     } else {
@@ -847,7 +832,7 @@
                 cameraCodeLogEl.innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
                 cameraSegmentsEl.innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được ghi.</p>';
                 exportCameraCsvButton.disabled = true; 
-                document.getElementById('downloadAllCameraSegmentsButton').disabled = true;
+                downloadAllCameraSegmentsButton.disabled = true;
                 uploadSheetCameraButton.disabled = true;
                 currentCameraCodeData = null;
             }
@@ -1082,7 +1067,7 @@
                 downloadBlob(URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })), fileName);
                 updateMessage("Đã xuất CSV thành công!", "success", msgAreaElement);
             }
-        };
+        }; // End of main function
     }());
     </script>
 </body>
