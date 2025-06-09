@@ -10,10 +10,9 @@
     <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
     <!-- JSZip for zipping files -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <!-- Google Platform Library -->
-    <script src="https://apis.google.com/js/api.js" async defer onload="onGapiLoad()"></script>
-    <!-- Google Identity Services (GIS) Client -->
-    <script src="https://accounts.google.com/gsi/client" async defer onload="onGisLoad()"></script>
+    <!-- Google Platform Library & Identity Services Client -->
+    <script async defer src="https://apis.google.com/js/api.js" onload="onGapiLoad()"></script>
+    <script async defer src="https://accounts.google.com/gsi/client" onload="onGisLoad()"></script>
     <style>
         body { 
             font-family: 'Inter', sans-serif; 
@@ -206,46 +205,53 @@
     </div>
 
     <script>
-        let gapiReady = false;
-        let gisReady = false;
+    // --- Google Auth Initialization ---
+    // These functions need to be in the global scope to be called by the `onload` attribute.
+    let gapiReady = false;
+    let gisReady = false;
 
-        function onGapiLoad() {
-            gapi.load('client', () => {
-                gapiReady = true;
-                if (window.tryInitializeApp) window.tryInitializeApp();
-            });
-        }
-
-        function onGisLoad() {
-            gisReady = true;
+    function onGapiLoad() {
+        gapi.load('client', () => {
+            gapiReady = true;
             if (window.tryInitializeApp) window.tryInitializeApp();
-        }
+        });
+    }
 
-    if (typeof window.APP_INITIALIZED === 'undefined') {
+    function onGisLoad() {
+        gisReady = true;
+        if (window.tryInitializeApp) window.tryInitializeApp();
+    }
+    
+    // --- App Logic ---
+    (function() {
+        if (typeof window.APP_INITIALIZED !== 'undefined') {
+            return;
+        }
         window.APP_INITIALIZED = true;
 
-        // --- Google API Configuration ---
-        const API_KEY = 'AIzaSyD7pU2xCHySsNnfgvIyCw8h25kwwU7dKo4'; // <<<< THAY BẰNG API KEY CỦA BẠN
-        const CLIENT_ID = '31711163070-g0hhnvlhlvh91jij0k50k58o6usijj17.apps.googleusercontent.com'; // <<<< THAY BẰNG CLIENT ID CỦA BẠN
+        const API_KEY = 'AIzaSyD7pU2xCHySsNnfgvIyCw8h25kwwU7dKo4';
+        const CLIENT_ID = '31711163070-g0hhnvlhlvh91jij0k50k58o6usijj17.apps.googleusercontent.com';
         const DISCOVERY_DOCS = [
             "https://sheets.googleapis.com/$discovery/rest?version=v4",
             "https://www.googleapis.com/discovery/v1/apis/drive/v3/rest"
         ];
         const SCOPES = 'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file';
 
-        // --- Global State ---
         let tokenClient;
         
-        // --- Initialization ---
+        let appStarted = false;
         window.tryInitializeApp = function() {
-            if (gapiReady && gisReady) {
-                initializeGapiClient();
+            if (gapiReady && gisReady && !appStarted) {
+                appStarted = true;
+                main();
             }
         };
 
-        document.addEventListener('DOMContentLoaded', () => {
+        function main() {
+            // DOM Elements
             const googleSignInButton = document.getElementById('googleSignInButton');
             const googleSignOutButton = document.getElementById('googleSignOutButton');
+            const googleAuthMessageArea = document.getElementById('googleAuthMessageArea');
             const uploadSheetFileButton = document.getElementById('uploadSheetFileButton');
             const uploadSheetCameraButton = document.getElementById('uploadSheetCameraButton');
 
@@ -256,6 +262,8 @@
             const scanButton = document.getElementById('scanButton');
             const exportCsvButton = document.getElementById('exportCsvButton');
             const downloadAllFileSegmentsButton = document.getElementById('downloadAllFileSegmentsButton');
+            const codeLog = document.getElementById('codeLog');
+            const segmentsDiv = document.getElementById('segments');
             const messageArea = document.getElementById('messageArea');
 
             // Camera Tab DOM Elements
@@ -265,6 +273,8 @@
             const stopCameraButton = document.getElementById('stopCameraButton');
             const exportCameraCsvButton = document.getElementById('exportCameraCsvButton');
             const downloadAllCameraSegmentsButton = document.getElementById('downloadAllCameraSegmentsButton');
+            const cameraCodeLogEl = document.getElementById('cameraCodeLog');
+            const cameraSegmentsEl = document.getElementById('cameraSegments');
             const cameraMessageAreaEl = document.getElementById('cameraMessageArea');
 
             // Tab switching
@@ -298,26 +308,22 @@
             setupEventListeners();
         
             async function initializeLibraries() {
-                // Check for jsQR
                 if (typeof jsQR === 'undefined') {
                     updateMessage("Lỗi: Thư viện quét QR code (jsQR) không thể tải.", "error", messageArea);
                     updateMessage("Lỗi: Thư viện quét QR code (jsQR) không thể tải.", "error", cameraMessageAreaEl);
                     return;
                 }
 
-                // Check for and initialize BarcodeDetector
                 if ('BarcodeDetector' in window) {
                     try {
                         const supportedFormats = await window.BarcodeDetector.getSupportedFormats();
                         if (supportedFormats.length > 0) {
                             barcodeDetector = new window.BarcodeDetector({ formats: supportedFormats });
-                            console.log('Barcode Detector initialized with formats:', supportedFormats);
                         } else {
                             throw new Error("No supported formats found");
                         }
                     } catch (e) {
-                        console.error("Lỗi khởi tạo Barcode Detector:", e);
-                        barcodeDetector = null; // Ensure it's null if it fails
+                        barcodeDetector = null;
                         updateMessage("Không thể khởi tạo tính năng quét Barcode. Chỉ quét được QR.", "warning", messageArea);
                         updateMessage("Không thể khởi tạo tính năng quét Barcode. Chỉ quét được QR.", "warning", cameraMessageAreaEl);
                     }
@@ -327,24 +333,21 @@
                 }
 
                 fileScannerCtx = scannerCanvas.getContext('2d', { willReadFrequently: true });
+                initializeGapiClient();
             }
 
-
             function setupEventListeners() {
-                // Tab switching
                 tabButtons.forEach(button => {
                     button.addEventListener('click', () => {
                         switchTab(button.getAttribute('data-tab'));
                     });
                 });
 
-                // Google Auth
                 googleSignInButton.addEventListener('click', handleSignIn);
                 googleSignOutButton.addEventListener('click', handleSignOut);
                 uploadSheetFileButton.addEventListener('click', () => createAndUploadToSheet(detectedFileCodes, "File", messageArea));
                 uploadSheetCameraButton.addEventListener('click', () => createAndUploadToSheet(detectedCameraCodes, "Camera", cameraMessageAreaEl));
                 
-                // File Tab
                 videoFile.addEventListener('change', handleFileSelect);
                 scanButton.addEventListener('click', toggleFileScan);
                 exportCsvButton.addEventListener('click', () => exportToCSV(detectedFileCodes, "danh_sach_code_file.csv", messageArea));
@@ -352,7 +355,6 @@
                 videoPlayer.addEventListener('loadedmetadata', handleFileMetadataLoaded);
                 videoPlayer.addEventListener('error', () => handleVideoError(videoPlayer.error, messageArea, scanButton, exportCsvButton));
 
-                // Camera Tab
                 startCameraButton.addEventListener('click', startCameraScanAndRecord);
                 stopCameraButton.addEventListener('click', stopCameraScanAndRecord);
                 exportCameraCsvButton.addEventListener('click', () => exportToCSV(detectedCameraCodes, "danh_sach_code_camera.csv", cameraMessageAreaEl));
@@ -360,14 +362,11 @@
             }
             
             function switchTab(targetTab) {
-                 // Handle button active state
                  tabButtons.forEach(btn => btn.classList.remove('active'));
                  const activeButton = document.querySelector(`[data-tab="${targetTab}"]`);
                  if (activeButton) {
                     activeButton.classList.add('active');
                  }
-
-                 // Handle content visibility using Tailwind's 'hidden' class
                  tabContents.forEach(content => {
                     if (content.id === targetTab + 'Content') {
                         content.classList.remove('hidden');
@@ -375,15 +374,12 @@
                         content.classList.add('hidden');
                     }
                  });
-
-                 // Stop camera if user switches away from camera tab
                  if (targetTab !== 'cameraTab' && isCameraRecording) {
                      stopCameraScanAndRecord();
                  }
             }
             
-            // --- Google API Functions ---
-            window.initializeGapiClient = async function() {
+            async function initializeGapiClient() {
                 try {
                     await gapi.client.init({
                         apiKey: API_KEY,
@@ -396,7 +392,6 @@
                     });
                 } catch (e) {
                     console.error("Error initializing Google API Client:", e);
-                    const googleAuthMessageArea = document.getElementById('googleAuthMessageArea');
                     let userMessage = "Lỗi khởi tạo Google API.";
                     if (e.result && e.result.error) {
                         const error = e.result.error;
@@ -415,10 +410,9 @@
                 if (tokenResponse && tokenResponse.access_token) {
                     gapi.client.setToken(tokenResponse);
                     updateSigninStatus(true);
-                    
                 } else {
                     updateSigninStatus(false);
-                    document.getElementById('googleAuthMessageArea').textContent = 'Đăng nhập Google thất bại.';
+                    googleAuthMessageArea.textContent = 'Đăng nhập Google thất bại.';
                 }
             }
             
@@ -426,7 +420,7 @@
                 if (tokenClient) {
                     tokenClient.requestAccessToken({prompt: 'consent'});
                 } else {
-                    document.getElementById('googleAuthMessageArea').textContent = 'Google Client chưa sẵn sàng, vui lòng thử lại sau giây lát.';
+                    googleAuthMessageArea.textContent = 'Google Client chưa sẵn sàng, vui lòng thử lại sau giây lát.';
                 }
             }
 
@@ -445,12 +439,12 @@
                 if (isSignedIn) {
                     googleSignInButton.classList.add('hidden');
                     googleSignOutButton.classList.remove('hidden');
-                    document.getElementById('googleAuthMessageArea').textContent = 'Đã đăng nhập thành công!';
+                    googleAuthMessageArea.textContent = 'Đã đăng nhập thành công!';
                     autoUploadCheckbox.disabled = false;
                 } else {
                     googleSignInButton.classList.remove('hidden');
                     googleSignOutButton.classList.add('hidden');
-                    document.getElementById('googleAuthMessageArea').textContent = '';
+                    googleAuthMessageArea.textContent = '';
                     autoUploadCheckbox.disabled = true;
                     autoUploadCheckbox.checked = false;
                 }
@@ -460,13 +454,11 @@
             function updateAllButtonStates() {
                 const isSignedIn = !!(gapi.client && gapi.client.getToken());
                 
-                // File Tab
                 uploadSheetFileButton.disabled = detectedFileCodes.length === 0 || !isSignedIn;
                 document.querySelectorAll('#segments .upload-drive-button').forEach(btn => {
                     btn.disabled = !isSignedIn || btn.textContent.includes("Đã tải lên") || btn.textContent.includes("Đang tải");
                 });
                 
-                // Camera Tab
                 uploadSheetCameraButton.disabled = detectedCameraCodes.length === 0 || !isSignedIn;
                 document.querySelectorAll('#cameraSegments .upload-drive-button').forEach(btn => {
                     btn.disabled = !isSignedIn || btn.textContent.includes("Đã tải lên") || btn.textContent.includes("Đang tải");
@@ -571,11 +563,11 @@
             function resetFileScannerState() {
                 if (isFileScanning) stopFileScan();
                 detectedFileCodes = [];
-                document.getElementById('codeLog').innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
-                document.getElementById('segments').innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được tạo.</p>';
+                codeLog.innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
+                segmentsDiv.innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được tạo.</p>';
                 scanButton.disabled = true; 
                 exportCsvButton.disabled = true;
-                document.getElementById('downloadAllFileSegmentsButton').disabled = true;
+                downloadAllFileSegmentsButton.disabled = true;
                 uploadSheetFileButton.disabled = true;
                 fileVideoLoaded = false;
                 scanButton.textContent = 'Bắt đầu quét';
@@ -600,8 +592,8 @@
                 updateMessage('Bắt đầu quét file...', 'info', messageArea, true);
                 
                 detectedFileCodes = [];
-                document.getElementById('codeLog').innerHTML = '<p class="text-gray-500 italic">Đang quét...</p>';
-                document.getElementById('segments').innerHTML = '';
+                codeLog.innerHTML = '<p class="text-gray-500 italic">Đang quét...</p>';
+                segmentsDiv.innerHTML = '';
                 videoPlayer.pause(); 
                 videoPlayer.currentTime = 0;
                 
@@ -630,7 +622,7 @@
                                 id: 'code-file-' + Date.now(), 
                                 blob: null 
                             });
-                            displayCodeEntry(videoPlayer.currentTime, detectedCode.data, detectedCode.type, document.getElementById('codeLog'));
+                            displayCodeEntry(videoPlayer.currentTime, detectedCode.data, detectedCode.type, codeLog);
                             showDetectionNotification(detectedCode.data, 'fileDetectionOverlay');
                         }
                     }
@@ -649,7 +641,7 @@
                     updateMessage(`Quét xong! Tìm thấy ${detectedFileCodes.length} mã. Đang xử lý video...`, 'success', messageArea, true);
                     generateVideoFileSegments();
                     exportCsvButton.disabled = false;
-                    document.getElementById('downloadAllFileSegmentsButton').disabled = false;
+                    downloadAllFileSegmentsButton.disabled = false;
                     if(gapi.client.getToken()) uploadSheetFileButton.disabled = false;
                 } else {
                     updateMessage('Quét xong! Không tìm thấy mã nào.', 'info', messageArea);
@@ -953,6 +945,7 @@
             }
 
             function createCameraSegmentUI(codeInfo, blob) {
+                const cameraSegmentsEl = document.getElementById('cameraSegments');
                 cameraSegmentsEl.querySelector('p.italic')?.remove();
                 const segmentWrapper = document.createElement('div');
                 segmentWrapper.className = 'p-3 mb-2 bg-blue-50 rounded-md shadow-sm';
@@ -1070,7 +1063,6 @@
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
-                // URL.revokeObjectURL(blobUrl); // Don't revoke immediately if player needs it
             }
 
             function sanitizeFileName(name) { return name.replace(/[^a-z0-9_.-]/gi, '_').substring(0, 50); }
@@ -1090,8 +1082,8 @@
                 downloadBlob(URL.createObjectURL(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })), fileName);
                 updateMessage("Đã xuất CSV thành công!", "success", msgAreaElement);
             }
-        });
-    } // End of APP_INITIALIZED check
+        };
+    }());
     </script>
 </body>
 </html>
