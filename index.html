@@ -176,7 +176,7 @@
                      <div class="grid grid-cols-1">
                         <button id="uploadSheetCameraButton" disabled class="btn btn-success">Tải lên Google Sheets</button>
                     </div>
-                    <!-- NEW: Auto-action checkboxes -->
+                    <!-- Auto-action checkboxes -->
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-3 p-3 bg-gray-100 rounded-lg">
                         <div class="flex items-center">
                             <input type="checkbox" id="autoDownloadCheckbox" class="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500">
@@ -286,7 +286,6 @@
             const cameraMessageAreaEl = document.getElementById('cameraMessageArea');
             const tabButtons = document.querySelectorAll('.tab-button');
             const tabContents = document.querySelectorAll('.tab-content');
-            // NEW: Auto-action checkboxes
             const autoUploadCheckbox = document.getElementById('autoUploadCheckbox');
             const autoDownloadCheckbox = document.getElementById('autoDownloadCheckbox');
 
@@ -469,7 +468,7 @@
             }
             
             async function createAndUploadToSheet(dataArray, titleSuffix, msgAreaElement) {
-                // ... (no changes in this function)
+                // This function has no changes.
             }
 
             async function uploadVideoToDrive(codeInfo, fileName, msgAreaElement, buttonElement) {
@@ -524,17 +523,168 @@
                 }
             }
 
-            // --- File Tab Logic --- (no changes)
-            function handleFileSelect(event) { /* ... */ }
-            function handleFileMetadataLoaded() { /* ... */ }
-            function resetFileScannerState() { /* ... */ }
-            function toggleFileScan() { /* ... */ }
-            function stopFileScan() { /* ... */ }
-            async function startFullFileScan() { /* ... */ }
-            async function processVideoFrame(currentTimeToScan) { /* ... */ }
-            function finishFileScan() { /* ... */ }
-            async function generateVideoFileSegments() { /* ... */ }
-            function recordSegmentToFile(startTime, endTime) { /* ... */ }
+            // --- File Tab Logic --- (These functions have no changes)
+            function handleFileSelect(event) {
+                const file = event.target.files[0];
+                if (file) {
+                    if (!file.type.startsWith('video/')) {
+                        updateMessage('Vui lòng chọn một file video hợp lệ.', 'error', messageArea); return;
+                    }
+                    videoPlayer.src = URL.createObjectURL(file);
+                    videoPlayer.load();
+                    resetFileScannerState();
+                    updateMessage('Đang tải video...', 'info', messageArea, true);
+                }
+            }
+            function handleFileMetadataLoaded() {
+                scannerCanvas.width = videoPlayer.videoWidth; 
+                scannerCanvas.height = videoPlayer.videoHeight;
+                currentFileVideoDuration = videoPlayer.duration;
+                scanButton.disabled = false; 
+                fileVideoLoaded = true;
+                updateMessage('Video đã sẵn sàng. Nhấn "Bắt đầu quét" để tìm mã.', 'info', messageArea);
+            }
+            function resetFileScannerState() {
+                if (isFileScanning) stopFileScan();
+                detectedFileCodes = [];
+                codeLog.innerHTML = '<p class="text-gray-500 italic">Chưa có mã nào được phát hiện.</p>';
+                segmentsDiv.innerHTML = '<p class="text-gray-500 italic">Chưa có đoạn video nào được tạo.</p>';
+                scanButton.disabled = true; 
+                exportCsvButton.disabled = true;
+                downloadAllFileSegmentsButton.disabled = true;
+                uploadSheetFileButton.disabled = true;
+                fileVideoLoaded = false;
+                scanButton.textContent = 'Bắt đầu quét';
+            }
+            function toggleFileScan() { isFileScanning ? stopFileScan() : startFullFileScan(); }
+            function stopFileScan() {
+                if (fileScanTimeoutId) clearTimeout(fileScanTimeoutId);
+                isFileScanning = false;
+                scanButton.textContent = 'Bắt đầu quét';
+                scanButton.disabled = false;
+                updateMessage('Đã dừng quét file.', 'info', messageArea);
+            }
+            async function startFullFileScan() {
+                if (!fileVideoLoaded) return;
+                isFileScanning = true;
+                scanButton.textContent = 'Dừng quét (0%)';
+                updateMessage('Bắt đầu quét file...', 'info', messageArea, true);
+                
+                detectedFileCodes = [];
+                codeLog.innerHTML = '<p class="text-gray-500 italic">Đang quét...</p>';
+                segmentsDiv.innerHTML = '';
+                videoPlayer.pause(); 
+                videoPlayer.currentTime = 0;
+                
+                await processVideoFrame(0);
+            }
+            async function processVideoFrame(currentTimeToScan) {
+                if (!isFileScanning || currentTimeToScan > currentFileVideoDuration) {
+                    finishFileScan(); return;
+                }
+                videoPlayer.currentTime = currentTimeToScan;
+
+                videoPlayer.onseeked = async () => {
+                    if (!isFileScanning) { finishFileScan(); return; }
+                    
+                    fileScannerCtx.drawImage(videoPlayer, 0, 0, scannerCanvas.width, scannerCanvas.height);
+                    const detectedCode = await scanCanvasForCode(scannerCanvas, fileScannerCtx);
+
+                    if (detectedCode) {
+                        const lastDetected = detectedFileCodes.length > 0 ? detectedFileCodes[detectedFileCodes.length - 1] : null;
+                        if (!lastDetected || lastDetected.data !== detectedCode.data) {
+                            detectedFileCodes.push({ 
+                                time: videoPlayer.currentTime, 
+                                data: detectedCode.data, 
+                                type: detectedCode.type,
+                                id: 'code-file-' + Date.now(), 
+                                blob: null 
+                            });
+                            displayCodeEntry(videoPlayer.currentTime, detectedCode.data, detectedCode.type, codeLog);
+                            showDetectionNotification(detectedCode.data, 'fileDetectionOverlay');
+                        }
+                    }
+                    
+                    const progress = (currentTimeToScan / currentFileVideoDuration) * 100;
+                    scanButton.textContent = `Dừng quét (${progress.toFixed(0)}%)`;
+                    
+                    fileScanTimeoutId = setTimeout(() => processVideoFrame(currentTimeToScan + 0.5), 50); // Scan every 0.5s
+                };
+            }
+            function finishFileScan() {
+                isFileScanning = false;
+                scanButton.textContent = 'Bắt đầu quét';
+                if (detectedFileCodes.length > 0) {
+                    updateMessage(`Quét xong! Tìm thấy ${detectedFileCodes.length} mã. Đang xử lý video...`, 'success', messageArea, true);
+                    generateVideoFileSegments();
+                    exportCsvButton.disabled = false;
+                    downloadAllFileSegmentsButton.disabled = false;
+                    if(gapi.client.getToken()) uploadSheetFileButton.disabled = false;
+                } else {
+                    updateMessage('Quét xong! Không tìm thấy mã nào.', 'info', messageArea);
+                }
+            }
+            async function generateVideoFileSegments() {
+                 if (detectedFileCodes.length === 0) return;
+                
+                for (let i = 0; i < detectedFileCodes.length; i++) {
+                    const startTime = detectedFileCodes[i].time;
+                    const endTime = (i + 1 < detectedFileCodes.length) ? detectedFileCodes[i+1].time : currentFileVideoDuration;
+                    
+                    const blob = await recordSegmentToFile(startTime, endTime);
+                    if (blob) {
+                        detectedFileCodes[i].blob = blob;
+                        createFileSegmentUI(i, detectedFileCodes[i], startTime, endTime, blob);
+                    }
+                }
+                 updateMessage("Các đoạn video từ file đã sẵn sàng.", "success", messageArea);
+            }
+            function recordSegmentToFile(startTime, endTime) {
+                 return new Promise(async (resolve, reject) => {
+                     if (!('MediaRecorder' in window) || !videoPlayer.captureStream) {
+                        updateMessage("Trình duyệt không hỗ trợ ghi video.", 'error', messageArea);
+                        return resolve(null);
+                    }
+                    
+                    const mimeType = getSupportedMimeType();
+                    if (!mimeType) {
+                        updateMessage("Không tìm thấy định dạng video được hỗ trợ để ghi.", 'error', messageArea);
+                        return resolve(null);
+                    }
+                    
+                    const recordedChunks = [];
+                    const stream = videoPlayer.captureStream();
+                    const mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+                    mediaRecorder.ondataavailable = e => { if (e.data.size > 0) recordedChunks.push(e.data); };
+                    mediaRecorder.onstop = () => resolve(new Blob(recordedChunks, { type: mediaRecorder.mimeType }));
+                    mediaRecorder.onerror = e => {
+                        console.error("MediaRecorder error:", e);
+                        updateMessage("Lỗi khi ghi video.", 'error', messageArea);
+                        resolve(null);
+                    };
+
+                    const originalMutedState = videoPlayer.muted; 
+                    videoPlayer.muted = true;
+                    videoPlayer.currentTime = startTime;
+                    
+                    try {
+                        await videoPlayer.play();
+                        mediaRecorder.start();
+                        const checkTimeInterval = setInterval(() => {
+                            if (videoPlayer.currentTime >= endTime || videoPlayer.paused) {
+                                clearInterval(checkTimeInterval);
+                                if (mediaRecorder.state === "recording") mediaRecorder.stop();
+                                videoPlayer.pause();
+                                videoPlayer.muted = originalMutedState;
+                            }
+                        }, 100);
+                    } catch (e) {
+                        videoPlayer.muted = originalMutedState;
+                        reject(e);
+                    }
+                });
+            }
             
             // --- Camera Tab Logic ---
             async function startCameraScanAndRecord() {
@@ -591,8 +741,7 @@
                     startTimeMs: currentCameraSegmentStartTimeMs,
                     id: 'code-cam-' + currentCameraSegmentStartTimeMs,
                     blob: null,
-                    blobUrl: null, // NEW: To store object URL for cleanup
-                    // NEW: Status tracking for memory management
+                    blobUrl: null,
                     downloadRequired: autoDownloadCheckbox.checked,
                     uploadRequired: autoUploadCheckbox.checked && gapi.client.getToken(),
                     isDownloaded: false,
@@ -692,23 +841,108 @@
             }
 
             // --- Scanning & UI Helper Functions ---
-            async function scanCanvasForCode(canvas, context) { /* ... (no changes) */ }
-            function showDetectionNotification(codeData, overlayId) { /* ... (no changes) */ }
-            function displayCodeEntry(time, data, type, logElement, timestampMs = null) { /* ... (no changes) */ }
-            function createFileSegmentUI(index, codeInfo, startTime, endTime, blob) { /* ... (no changes) */ }
+            async function scanCanvasForCode(canvas, context) {
+                // 1. Try QR Code first (jsQR is reliable for QR)
+                const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+                const qrCode = jsQR(imageData.data, imageData.width, imageData.height, {
+                    // FIX: Allow scanning of both standard (dark on light) and inverted (light on dark) QR codes.
+                    inversionAttempts: "attemptBoth"
+                });
+                if (qrCode && qrCode.data) {
+                    return {
+                        data: qrCode.data,
+                        type: 'QR_CODE'
+                    };
+                }
+
+                // 2. If no QR, try the native BarcodeDetector API if it was initialized
+                if (barcodeDetector) {
+                    try {
+                        const barcodes = await barcodeDetector.detect(canvas);
+                        if (barcodes.length > 0) {
+                            // Return the first detected barcode
+                            return {
+                                data: barcodes[0].rawValue,
+                                type: barcodes[0].format.toUpperCase().replace(/_/g, '-') // e.g. code-128
+                            };
+                        }
+                    } catch (err) {
+                        console.error("Lỗi Barcode Detector API:", err);
+                        // Disable it if it fails consistently
+                        barcodeDetector = null; 
+                        updateMessage("Lỗi API quét barcode. Tính năng bị vô hiệu hoá.", "error", messageArea);
+                    }
+                }
+
+                return null;
+            }
+            
+            function showDetectionNotification(codeData, overlayId) {
+                const overlay = document.getElementById(overlayId);
+                if (!overlay) return;
+
+                const textElement = overlay.querySelector('span');
+                textElement.textContent = codeData;
+
+                overlay.classList.remove('hidden');
+                overlay.classList.add('detection-popup');
+
+                clearTimeout(notificationTimeout);
+                notificationTimeout = setTimeout(() => {
+                    overlay.classList.add('hidden');
+                    overlay.classList.remove('detection-popup');
+                }, 2000);
+            }
+
+            function displayCodeEntry(time, data, type, logElement, timestampMs = null) {
+                logElement.querySelector('p.italic')?.remove();
+                const div = document.createElement('div');
+                div.className = 'p-2.5 bg-white border border-gray-200 rounded-md shadow-sm mb-2';
+                let timeDisplay = timestampMs ? `Thời điểm: ${new Date(timestampMs).toLocaleTimeString()}` : `Tại: ${time.toFixed(2)}s`;
+                div.innerHTML = `
+                    <p class="font-semibold text-indigo-600 text-xs">${escapeHTML(type)}</p>
+                    <p class="text-sm break-all">${escapeHTML(data)}</p>
+                    <p class="text-xs text-gray-500">${timeDisplay}</p>`;
+                logElement.appendChild(div); 
+                logElement.scrollTop = logElement.scrollHeight;
+            }
+            
+            function createFileSegmentUI(index, codeInfo, startTime, endTime, blob) {
+                const segmentWrapper = document.createElement('div');
+                segmentWrapper.className = 'p-3 mb-2 bg-green-50 rounded-md shadow-sm';
+                const extension = getMimeTypeExtension(blob.type);
+                const fileName = `FILE_CODE_${sanitizeFileName(codeInfo.data)}_${startTime.toFixed(1)}s.${extension}`;
+
+                segmentWrapper.innerHTML = `
+                    <p class="font-semibold text-green-700">Đoạn ${index + 1}: ${escapeHTML(codeInfo.type)}</p>
+                    <p class="text-sm break-all">${escapeHTML(codeInfo.data)}</p>
+                    <p class="text-xs text-gray-700">Từ: ${startTime.toFixed(2)}s - Đến: ${endTime.toFixed(2)}s</p>
+                    <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        <button class="play-btn action-button bg-blue-500 hover:bg-blue-600 text-white text-sm py-1">Phát</button>
+                        <button class="download-btn action-button bg-yellow-500 hover:bg-yellow-600 text-white text-sm py-1">Tải xuống</button>
+                        <button class="upload-drive-button action-button google-button bg-purple-500 hover:bg-purple-600 text-white text-sm py-1" ${!(gapi.client && gapi.client.getToken()) && 'disabled'}>Tải lên Drive</button>
+                    </div>
+                `;
+                
+                segmentWrapper.querySelector('.play-btn').onclick = () => {
+                     videoPlayer.currentTime = startTime; videoPlayer.play(); 
+                };
+                segmentWrapper.querySelector('.download-btn').onclick = () => downloadBlob(URL.createObjectURL(blob), fileName);
+                segmentWrapper.querySelector('.upload-drive-button').onclick = (e) => uploadVideoToDrive(codeInfo, fileName, messageArea, e.currentTarget);
+                
+                document.getElementById('segments').appendChild(segmentWrapper);
+            }
 
             function createCameraSegmentUI(codeInfo) {
                 const cameraSegmentsEl = document.getElementById('cameraSegments');
                 cameraSegmentsEl.querySelector('p.italic')?.remove();
                 const segmentWrapper = document.createElement('div');
-                // NEW: Add ID to wrapper for later reference
                 segmentWrapper.id = codeInfo.id; 
                 segmentWrapper.className = 'p-3 mb-2 bg-blue-50 rounded-md shadow-sm transition-all duration-500';
                 
                 const extension = getMimeTypeExtension(codeInfo.blob.type);
                 const fileName = `CAM_CODE_${sanitizeFileName(codeInfo.data)}_${new Date(codeInfo.startTimeMs).toLocaleTimeString().replace(/:/g,'-')}.${extension}`;
                 
-                // NEW: Store blobUrl in codeInfo for memory management
                 codeInfo.blobUrl = URL.createObjectURL(codeInfo.blob);
                 
                 segmentWrapper.innerHTML = `
@@ -718,7 +952,6 @@
                             <p class="text-sm break-all">${escapeHTML(codeInfo.data)}</p>
                             <p class="text-xs text-gray-700">Thời gian: ${new Date(codeInfo.startTimeMs).toLocaleTimeString()}</p>
                         </div>
-                        <!-- NEW: Status Indicator -->
                         <div class="status-indicator-container text-right">
                            <span class="segment-status bg-yellow-200 text-yellow-800">Đang chờ</span>
                         </div>
@@ -734,7 +967,7 @@
                 const uploadButton = segmentWrapper.querySelector('.upload-drive-button');
                 segmentWrapper.querySelector('.play-btn').onclick = () => {
                     const container = segmentWrapper.querySelector('.video-container');
-                    if (codeInfo.blobUrl) { // Check if memory is already released
+                    if (codeInfo.blobUrl) {
                         container.innerHTML = `<video src="${codeInfo.blobUrl}" controls autoplay class="w-full rounded-md mt-2"></video>`;
                     } else {
                         container.innerHTML = `<p class="text-center text-sm text-red-600 p-2">Video đã được xử lý và giải phóng khỏi bộ nhớ.</p>`;
@@ -752,47 +985,29 @@
                 cameraSegmentsEl.appendChild(segmentWrapper);
             }
 
-            // --- NEW: Memory Management and Auto-Actions Logic ---
-            
-            /**
-             * Handles all actions needed when a new video segment is finalized.
-             */
+            // --- Memory Management and Auto-Actions Logic ---
             function handleNewSegmentCompletion(codeInfo) {
-                // 1. Create the UI for the new segment
                 createCameraSegmentUI(codeInfo);
 
-                // 2. Perform auto-download if checked
                 if (codeInfo.downloadRequired) {
                     const extension = getMimeTypeExtension(codeInfo.blob.type);
                     const fileName = `CAM_CODE_${sanitizeFileName(codeInfo.data)}_${new Date(codeInfo.startTimeMs).toLocaleTimeString().replace(/:/g, '-')}.${extension}`;
-                    
-                    // Trigger download immediately
                     downloadBlob(codeInfo.blobUrl, fileName);
-                    
-                    // Mark as downloaded and check if memory can be released
                     codeInfo.isDownloaded = true;
                     checkAndReleaseMemory(codeInfo);
                 }
 
-                // 3. Perform auto-upload if checked
                 if (codeInfo.uploadRequired) {
                     const extension = getMimeTypeExtension(codeInfo.blob.type);
                     const fileName = `CAM_CODE_${sanitizeFileName(codeInfo.data)}_${new Date(codeInfo.startTimeMs).toLocaleTimeString().replace(/:/g, '-')}.${extension}`;
-                    
-                    // Call upload without a button element for automatic action
                     uploadVideoToDrive(codeInfo, fileName, cameraMessageAreaEl, null);
                 }
                 
-                // 4. If no auto-actions are required, check for release immediately.
                 if (!codeInfo.downloadRequired && !codeInfo.uploadRequired) {
                      checkAndReleaseMemory(codeInfo);
                 }
             }
 
-            /**
-             * Checks if all required actions for a segment are complete, 
-             * and if so, releases its blob from memory.
-             */
             function checkAndReleaseMemory(codeInfo) {
                 const canRelease = (!codeInfo.downloadRequired || codeInfo.isDownloaded) && 
                                    (!codeInfo.uploadRequired || codeInfo.isUploaded);
@@ -801,14 +1016,12 @@
                 const statusContainer = segmentUI ? segmentUI.querySelector('.status-indicator-container') : null;
 
                 if (canRelease && codeInfo.blob) {
-                    // Release the memory
                     URL.revokeObjectURL(codeInfo.blobUrl);
                     codeInfo.blob = null;
                     codeInfo.blobUrl = null;
                     
                     console.log(`Bộ nhớ cho video "${codeInfo.data}" đã được giải phóng.`);
                     
-                    // Update UI to reflect the change
                     if (statusContainer) {
                         statusContainer.innerHTML = `<span class="segment-status bg-green-200 text-green-800">Đã lưu & giải phóng</span>`;
                     }
@@ -819,7 +1032,6 @@
                     });
 
                 } else if (statusContainer) {
-                    // Update status if still pending
                     let statuses = [];
                     if (codeInfo.downloadRequired && !codeInfo.isDownloaded) statuses.push("Đang tải về");
                     if (codeInfo.uploadRequired && !codeInfo.isUploaded) statuses.push("Đang tải lên");
@@ -831,10 +1043,37 @@
 
 
             // --- General Utility Functions ---
-            function updateMessage(message, type = 'info', areaElement, showLoader = false) { /* ... (no changes) */ }
-            function handleVideoError(error, msgArea, ...buttons) { /* ... (no changes) */ }
-            function getSupportedMimeType() { /* ... (no changes) */ }
-            function getMimeTypeExtension(mimeType) { /* ... (no changes) */ }
+            function updateMessage(message, type = 'info', areaElement, showLoader = false) {
+                 areaElement.innerHTML = `<p>${message} ${showLoader ? '<span class="loader"></span>' : ''}</p>`;
+                areaElement.className = 'p-3 rounded-md text-sm text-center';
+                const typeClasses = {
+                    error: 'bg-red-100 text-red-700',
+                    success: 'bg-green-100 text-green-700',
+                    warning: 'bg-yellow-100 text-yellow-700',
+                    info: 'bg-blue-100 text-blue-700'
+                };
+                areaElement.classList.add(...(typeClasses[type] || typeClasses.info).split(' '));
+            }
+            function handleVideoError(error, msgArea, ...buttons) {
+                updateMessage('Lỗi tải video.', 'error', msgArea);
+                buttons.forEach(btn => btn.disabled = true);
+            }
+            function getSupportedMimeType() {
+                const types = [
+                    'video/mp4; codecs="avc1.42E01E"',
+                    'video/mp4',
+                    'video/webm; codecs=vp9,opus',
+                    'video/webm; codecs=vp8,opus',
+                    'video/webm',
+                ];
+                for (const type of types) {
+                    if (MediaRecorder.isTypeSupported(type)) return type;
+                }
+                return null;
+            }
+            function getMimeTypeExtension(mimeType) {
+                return mimeType.includes('mp4') ? 'mp4' : 'webm';
+            }
             
             async function downloadAllSegments(codes, baseName, msgAreaElement) {
                  if (typeof JSZip === 'undefined') {
@@ -865,7 +1104,6 @@
                     updateMessage("Đã xảy ra lỗi khi tạo file zip.", 'error', msgAreaElement);
                 }
             }
-
 
             function downloadBlob(blobUrl, fileName) {
                 const a = document.createElement('a');
@@ -899,3 +1137,4 @@
     </script>
 </body>
 </html>
+
